@@ -85,6 +85,7 @@ static struct option prog_opts[] = {
 	{"ttr-cutoff-depth",                 1, 0, 1009},
 	{"ttr-cutoff-ratio",                 1, 0, 1010},
 	{"dump-kbm",                         1, 0, 1011},
+	{"dump-seqs",                        1, 0, 1036},
 	{"load-seqs",                        1, 0, 2002},
 	{"load-kbm",                         1, 0, 1012},
 	{"load-alignments",                  1, 0, 1013},
@@ -127,15 +128,16 @@ int usage(int level){
 	" -t <int>    Number of threads, 0 for all cores, [4]\n"
 	" -f          Force to overwrite output files\n"
 	" -x <string> Presets, comma delimited, []\n"
-	"            rsII/rs: -p 21 -S 4 -s 0.05 -L 5000\n"
-	"          sequel/sq\n"
-	"       nanopore/ont:\n"
-	"            (genome size < 1G)  -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
-	"            (genome size >= 1G) -p 19 -AS 2 -s 0.05 -L 5000\n"
-	"      corrected/ccs: -p 21 -k 0 -AS 4 -K 0.05 -s 0.5\n"
-	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be 3, -S will be 1\n"
+	"            preset1/rsII/rs: -p 21 -S 4 -s 0.05 -L 5000\n"
+	"                    preset2: -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
+	"                    preset3: -p 19 -AS 2 -s 0.05 -L 5000\n"
+	"                  sequel/sq\n"
+	"               nanopore/ont:\n"
+	"            (genome size < 1G: preset2) -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
+	"            (genome size >= 1G: preset3) -p 19 -AS 2 -s 0.05 -L 5000\n"
+	"      preset4/corrected/ccs: -p 21 -k 0 -AS 4 -K 0.05 -s 0.5\n"
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
-	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50]\n"
+	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50.0]\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
 	"             Negative integer indicate tidying read names too, e.g. -5000.\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
@@ -143,7 +145,6 @@ int usage(int level){
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
 	" -K <float>  Filter high frequency kmers, maybe repetitive, [1000.05]\n"
 	"             >= 1000 and indexing >= (1 - 0.05) * total_kmers_count\n"
-	" -E <int>    Min kmer frequency, [2]\n"
 	" -S <float>  Subsampling kmers, 1/(<-S>) kmers are indexed, [4.00]\n"
 	"             -S is very useful in saving memeory and speeding up\n"
 	"             please note that subsampling kmers will have less matched length\n"
@@ -180,8 +181,8 @@ int usage(int level){
 	"   See -p 21\n"
 	" --kmer-depth-max <float>\n"
 	"   See -K 1000.05\n"
-	" --kmer-depth-min <int>\n"
-	"   See -E\n"
+	" -E, --kmer-depth-min <int>\n"
+	"   Min kmer frequency, [2]\n"
 	//" --kmer-depth-min-filter\n"
 	//"   See -F\n"
 	//"   `wtdbg` uses a 4 Gbytes array to counting the occurence (0-3) of kmers in the way of counting-bloom-filter. It will reduce memory space largely\n"
@@ -298,6 +299,9 @@ int usage(int level){
 	"   set --ttr-cutoff-depth 0 to disable ttr masking\n"
 	" --dump-kbm <string>\n"
 	"   Dump kbm index into file for loaded by `kbm` or `wtdbg`\n"
+	" --dump-seqs <string>\n"
+	"   Dump kbm index (only sequences, no k-mer index) into file for loaded by `kbm` or `wtdbg`\n"
+	"   Please note: normally load it with --load-kbm, not with --load-seqs\n"
 	" --load-kbm <string>\n"
 	"   Instead of reading sequences and building kbm index, which is time-consumed, loading kbm-index from already dumped file.\n"
 	"   Please note that, once kbm-index is mmaped by kbm -R <kbm-index> start, will just get the shared memory in minute time.\n"
@@ -364,7 +368,7 @@ int main(int argc, char **argv){
 	FILE *evtlog;
 	char *prefix, *dump_seqs, *load_seqs, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
 	char regtag[14];
-	int len, tag_size, asyn_read, seq_type;
+	int len, tag_size, asyn_read, preset;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
 	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
@@ -381,7 +385,7 @@ int main(int argc, char **argv){
 	mem_stingy = 0;
 	tidy_reads = 0;
 	tidy_rdtag = -1;
-	seq_type = 0; // 0, unknown; 1: rs; 2: sq; 3: ont; 4: ccs
+	preset = 0; // 0, unknown; 1: rs; 2: sq; 3: ont; 4: ccs
 	genome_size = 0;
 	genome_depx = 50.0;
 	num_index = 1;
@@ -485,15 +489,18 @@ int main(int argc, char **argv){
 							if(KBM_LOG){
 								fprintf(KBM_LOGF, " -- Preset: '%s' --", beg); fflush(KBM_LOGF);
 							}
-							if(strcasecmp(beg, "rs") == 0 || strcasecmp(beg, "rsII") == 0){
-								seq_type = 1;
+							if(strcasecmp(beg, "preset1") == 0 || strcasecmp(beg, "rs") == 0 || strcasecmp(beg, "rsII") == 0){
+								preset = 1;
+							} else if(strcasecmp(beg, "preset2") == 0){
+								preset = 2;
+							} else if(strcasecmp(beg, "preset3") == 0){
+								preset = 3;
 							} else if(strcasecmp(beg, "sq") == 0 || strcasecmp(beg, "sequel") == 0){
-								seq_type = 2;
+								preset = -1;
 							} else if(strcasecmp(beg, "ont") == 0 || strcasecmp(beg, "nanopore") == 0){
-								seq_type = 3;
-							} else if(strcasecmp(beg, "ccs") == 0 || strcasecmp(beg, "corrected") == 0){
-								seq_type = 4;
-								tidy_reads = 5000;
+								preset = -1;
+							} else if(strcasecmp(beg, "preset4") == 0 || strcasecmp(beg, "ccs") == 0 || strcasecmp(beg, "corrected") == 0){
+								preset = 4;
 							} else {
 								fprintf(stderr, " ** ERROR: cannot recognize '%s' in '-x %s'\n", beg, optarg);
 								exit(1);
@@ -550,6 +557,7 @@ int main(int argc, char **argv){
 			case 1008: max_node_cov = atoi(optarg); break;
 			case 1009: ttr_n_cov = atoi(optarg); break;
 			case 1010: ttr_e_cov = atof(optarg); break;
+			case 1036: dump_seqs = optarg; break;
 			case 2002: load_seqs = optarg; break;
 			case 1011: dump_kbm = optarg; break;
 			case 1012: load_kbm = optarg; break;
@@ -617,7 +625,14 @@ int main(int argc, char **argv){
 		return usage(-1);
 	}
 	if(max_idx_bp == 0) max_idx_bp = 0xFFFFFFFFFFFFFFFFLLU;
-	switch(seq_type){
+	if(preset == -1){
+		if(genome_size && genome_size < 1000000000LLU){
+			preset = 2;
+		} else {
+			preset = 3;
+		}
+	}
+	switch(preset){
 		case 1:
 			if(!(opt_flags & (1 << 1))) par->ksize = 0;
 			if(!(opt_flags & (1 << 0))) par->psize = 21;
@@ -627,22 +642,20 @@ int main(int argc, char **argv){
 			if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
 			break;
 		case 2:
+			if(!(opt_flags & (1 << 1))) par->ksize = 15;
+			if(!(opt_flags & (1 << 0))) par->psize = 0;
+			if(!(opt_flags & (1 << 2))) par->kmer_mod = 2 * KBM_N_HASH;
+			if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
+			if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
+			if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
+			break;
 		case 3:
-			if(genome_size && genome_size < 1000000000LLU){
-				if(!(opt_flags & (1 << 1))) par->ksize = 15;
-				if(!(opt_flags & (1 << 0))) par->psize = 0;
-				if(!(opt_flags & (1 << 2))) par->kmer_mod = 2 * KBM_N_HASH;
-				if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
-				if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
-				if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
-			} else {
-				if(!(opt_flags & (1 << 1))) par->ksize = 0;
-				if(!(opt_flags & (1 << 0))) par->psize = 19;
-				if(!(opt_flags & (1 << 2))) par->kmer_mod = 2 * KBM_N_HASH;
-				if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
-				if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
-				if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
-			}
+			if(!(opt_flags & (1 << 1))) par->ksize = 0;
+			if(!(opt_flags & (1 << 0))) par->psize = 19;
+			if(!(opt_flags & (1 << 2))) par->kmer_mod = 2 * KBM_N_HASH;
+			if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
+			if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
+			if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
 			break;
 		case 4:
 			if(!(opt_flags & (1 << 1))) par->ksize = 0;
@@ -840,6 +853,14 @@ int main(int argc, char **argv){
 			}
 			ready_kbm(kbm);
 			fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
+			if(dump_seqs){
+				FILE *dump;
+				fprintf(KBM_LOGF, "[%s] dump kbm-index (only seqs) to %s ...", date(), dump_seqs); fflush(KBM_LOGF);
+				dump = open_file_for_write(dump_seqs, NULL, 1);
+				mem_dump_obj_file(kbm, 1, &kbm_obj_desc, 1, 0, dump);
+				fclose(dump);
+				fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
+			}
 		}
 	}
 	print_proc_stat_info(0);
