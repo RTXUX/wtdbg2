@@ -1451,13 +1451,14 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	//fix_node = 0;
 	nhit = 0;
 	for(ii=0;ii<in;ii++){
-		ib = ie;
-		ie = ib + ic;
-		for (int i=0;i<kbm_part_num;++i) {
+		/* ib = ie;
+		ie = ib + ic; */
+		for (int i=1;i<=kbm_part_num;++i) {
 			ib = ie;
 			ie = ib + ic;
+			while(ie > 0 && ie < g->kbm->bins->size && g->kbm->bins->buffer[ie - 1].ridx == g->kbm->bins->buffer[ie].ridx) ie ++;
 		}
-		while(ie > 0 && ie < g->kbm->bins->size && g->kbm->bins->buffer[ie - 1].ridx == g->kbm->bins->buffer[ie].ridx) ie ++;
+		
 		if(g->corr_mode == 0){
 			qb = 0;
 			qe = ie? g->kbm->bins->buffer[ie - 1].ridx : 0;
