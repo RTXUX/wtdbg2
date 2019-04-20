@@ -28,7 +28,7 @@ wtdbg2: $(GENERIC_SRC) wtdbg.c wtdbg-graph.h wtdbg.h kbm.h kswx.h ksw.h ksw.c kb
 	$(CC) $(CFLAGS) -o $@ wtdbg.c ksw.c $(GLIBS)
 	
 wtdbg2-alt: $(GENERIC_SRC) wtdbg-alt.c wtdbg-graph.h wtdbg-alt.h kbm.h kswx.h ksw.h ksw.c kbmpoa.h wtpoa.h tripoa.h poacns.h
-	$(CC) $(CFLAGS) -o $@ wtdbg.c ksw.c $(GLIBS)
+	$(CC) $(CFLAGS) -o $@ wtdbg-alt.c ksw.c $(GLIBS)
 
 wtdbg-cns: $(GENERIC_SRC) wtdbg-cns.c kswx.h ksw.h ksw.c dbgcns.h dagcns.h queue.h general_graph.h
 	$(CC) $(CFLAGS) -o wtdbg-cns wtdbg-cns.c ksw.c $(GLIBS)
